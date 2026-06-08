@@ -1,0 +1,1 @@
+v3: 修复 GitHub Actions 中 wget 下载 opencv-mobile 偶发 exit code 4 的问题。改用 curl retry，并加入 SourceForge 镜像 fallback。\n
