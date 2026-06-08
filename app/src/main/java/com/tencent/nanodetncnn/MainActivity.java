@@ -75,6 +75,28 @@ public class MainActivity extends Activity {
                 startService(intent);
             }
         });
+
+        Button uvc = (Button) findViewById(R.id.buttonStartUvcCameraDetect);
+        uvc.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, UvcCameraDetectActivity.class);
+                intent.putExtra(UvcCameraDetectActivity.EXTRA_MODEL_ID, currentModel);
+                intent.putExtra(UvcCameraDetectActivity.EXTRA_CPU_GPU, currentCpuGpu);
+                startActivity(intent);
+            }
+        });
+
+        Button usb = (Button) findViewById(R.id.buttonStartUsbCameraDetect);
+        usb.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, UsbCameraDetectActivity.class);
+                intent.putExtra(UsbCameraDetectActivity.EXTRA_MODEL_ID, currentModel);
+                intent.putExtra(UsbCameraDetectActivity.EXTRA_CPU_GPU, currentCpuGpu);
+                startActivity(intent);
+            }
+        });
     }
 
     private void startScreenDetectFlow() {

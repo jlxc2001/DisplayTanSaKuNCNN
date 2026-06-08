@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <TextureView
+        android:id="@+id/usbTextureView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.tencent.nanodetncnn.DetectionOverlayView
+        android:id="@+id/usbOverlayView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/usbStatusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="left|top"
+        android:layout_marginLeft="12dp"
+        android:layout_marginTop="34dp"
+        android:background="#66000000"
+        android:padding="6dp"
+        android:text="正在准备USB摄像头..."
+        android:textColor="#AAFFCC"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/buttonCloseUsbCamera"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="right|top"
+        android:layout_marginRight="12dp"
+        android:layout_marginTop="24dp"
+        android:text="关闭" />
+</FrameLayout>

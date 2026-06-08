@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <SurfaceView
+        android:id="@+id/uvcPreviewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.tencent.nanodetncnn.DetectionOverlayView
+        android:id="@+id/uvcOverlayView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|left"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="#66000000">
+
+        <TextView
+            android:id="@+id/uvcStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="UVC READY"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/buttonOpenUvc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="打开UVC" />
+
+        <Button
+            android:id="@+id/buttonCloseUvc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="关闭" />
+    </LinearLayout>
+</FrameLayout>

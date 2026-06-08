@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
-        android:text="NanoDet 屏幕识别悬浮窗版"
+        android:text="NanoDet 识别：屏幕录制 / UVC摄像头"
         android:textSize="18sp"
         android:textStyle="bold"
         android:paddingBottom="8dp" />
@@ -45,6 +45,19 @@
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
         android:text="停止识别" />
+
+
+    <Button
+        android:id="@+id/buttonStartUvcCameraDetect"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:text="UVC摄像头识别（真UVC直连）" />
+
+    <Button
+        android:id="@+id/buttonStartUsbCameraDetect"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:text="USB摄像头识别（Camera2）" />
 
     <TextView
         android:layout_width="fill_parent"

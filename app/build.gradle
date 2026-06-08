@@ -13,7 +13,8 @@ android {
         minSdkVersion 24
         targetSdkVersion 35
 
-        // 你的设备疑似 32 位处理器，先只打 armeabi-v7a，避免装错 64 位库。
+        // 你的设备疑似 32 位处理器，先只打 armeabi-v7a。
+        // org.uvccamera/lib 和 ncnn 都会按这个 ABI 过滤打包。
         ndk {
             abiFilters "armeabi-v7a"
         }
@@ -32,13 +33,17 @@ android {
         }
     }
 
-    dependencies {
-        implementation 'com.android.support:support-v4:24.0.0'
-    }
-
     packaging {
         jniLibs {
             useLegacyPackaging true
         }
     }
+}
+
+dependencies {
+    implementation 'com.android.support:support-v4:24.0.0'
+
+    // 真 UVC 摄像头输入：直接通过 USB Host/libuvc 打开 UVC 摄像头，
+    // 不依赖系统 Camera2 是否把 USB 摄像头暴露出来。
+    implementation 'org.uvccamera:lib:0.0.13'
 }

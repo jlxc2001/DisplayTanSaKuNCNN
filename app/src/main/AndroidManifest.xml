@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:versionCode="2"
-    android:versionName="screen-overlay-1.0">
+    android:versionName="screen-overlay-uvc-camera-1.0">
 
     <!-- 原项目的相机权限可以保留，但这个屏幕识别版本不再依赖相机 -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.external" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application android:label="@string/app_name">
         <activity
@@ -22,6 +24,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.tencent.nanodetncnn.UsbCameraDetectActivity"
+            android:label="USB摄像头识别"
+            android:screenOrientation="landscape"
+            android:exported="false" />
+
+        <activity
+            android:name="com.tencent.nanodetncnn.UvcCameraDetectActivity"
+            android:label="UVC摄像头识别"
+            android:screenOrientation="landscape"
+            android:exported="false" />
 
         <service
             android:name="com.tencent.nanodetncnn.ScreenDetectService"
