@@ -5,7 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -14,13 +13,19 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * 战斗 HUD 风格识别框悬浮层。
+ * 战斗 HUD 风格识别框悬浮层（静态轻量版）
+ *
+ * 特点：
+ * 1. 识别框严格贴合目标检测框，不再做放大/收缩动画。
+ * 2. 去掉扫描动画，降低低配车机负担。
+ * 3. 保留 TRACK / LOCK / LOCKED 状态与颜色变化。
+ * 4. 保留轻量战斗机风格角框与中心准星。
  *
  * 适配 ScreenDetectService 当前调用方式：
  *   overlayView.updateDetections(float[] result);
  *   overlayView.clear();
  *
- * result 格式来自 NanoDetNcnn.detectBitmap(Bitmap)：
+ * result 格式：
  *   float[]{srcW, srcH, label, prob, x, y, w, h, label, prob, x, y, w, h ...}
  */
 public class DetectionOverlayView extends View {
@@ -38,20 +43,15 @@ public class DetectionOverlayView extends View {
             "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
     };
 
-    // ===== 低配置车机友好参数 =====
-    private static final long FRAME_DELAY_MS = 50L;       // 20fps 动画，够帅且相对省资源
-    private static final long ACQUIRE_ANIM_MS = 320L;     // 首次识别收缩锁定动画
-    private static final long TRACK_STALE_MS = 700L;      // 短时间丢帧不立刻消失，避免闪烁
+    private static final long TRACK_STALE_MS = 700L;
     private static final float MATCH_DISTANCE_FACTOR = 0.16f;
 
-    // ===== 状态阈值 =====
     private static final float LOCK_THRESHOLD = 0.60f;
     private static final float LOCKED_THRESHOLD = 0.80f;
 
-    // ===== HUD 颜色 =====
-    private static final int COLOR_TRACK = Color.rgb(110, 255, 170);  // HUD 绿
-    private static final int COLOR_LOCK = Color.rgb(255, 210, 90);    // 琥珀黄
-    private static final int COLOR_LOCKED = Color.rgb(255, 90, 90);   // 锁定红
+    private static final int COLOR_TRACK = Color.rgb(110, 255, 170);
+    private static final int COLOR_LOCK = Color.rgb(255, 210, 90);
+    private static final int COLOR_LOCKED = Color.rgb(255, 90, 90);
 
     private final Object lock = new Object();
     private final List<Track> tracks = new ArrayList<Track>();
@@ -62,9 +62,8 @@ public class DetectionOverlayView extends View {
 
     private final Paint hudPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint scanPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint centerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textBoxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private enum LockLevel {
@@ -78,7 +77,6 @@ public class DetectionOverlayView extends View {
         RectF rect = new RectF();
         float centerX;
         float centerY;
-        long bornTime;
         long lastSeenTime;
     }
 
@@ -89,14 +87,6 @@ public class DetectionOverlayView extends View {
         float centerX;
         float centerY;
     }
-
-    private final Runnable animator = new Runnable() {
-        @Override
-        public void run() {
-            invalidate();
-            postDelayed(this, FRAME_DELAY_MS);
-        }
-    };
 
     public DetectionOverlayView(Context context) {
         super(context);
@@ -117,19 +107,15 @@ public class DetectionOverlayView extends View {
         setWillNotDraw(false);
 
         hudPaint.setStyle(Paint.Style.STROKE);
-        hudPaint.setStrokeWidth(dp(2.2f));
+        hudPaint.setStrokeWidth(dp(2.0f));
         hudPaint.setStrokeCap(Paint.Cap.SQUARE);
 
         thinPaint.setStyle(Paint.Style.STROKE);
-        thinPaint.setStrokeWidth(dp(1.1f));
+        thinPaint.setStrokeWidth(dp(1.0f));
         thinPaint.setStrokeCap(Paint.Cap.SQUARE);
 
-        scanPaint.setStyle(Paint.Style.STROKE);
-        scanPaint.setStrokeWidth(dp(1.4f));
-        scanPaint.setStrokeCap(Paint.Cap.SQUARE);
-
         centerPaint.setStyle(Paint.Style.STROKE);
-        centerPaint.setStrokeWidth(dp(1.3f));
+        centerPaint.setStrokeWidth(dp(1.1f));
         centerPaint.setStrokeCap(Paint.Cap.SQUARE);
 
         textPaint.setStyle(Paint.Style.FILL);
@@ -140,24 +126,8 @@ public class DetectionOverlayView extends View {
         textBoxPaint.setStrokeWidth(dp(1f));
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        removeCallbacks(animator);
-        post(animator);
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        removeCallbacks(animator);
-        super.onDetachedFromWindow();
-    }
-
-    /**
-     * ScreenDetectService 正在调用的方法，必须保留这个签名。
-     */
     public void updateDetections(float[] result) {
-        long now = SystemClock.uptimeMillis();
+        long now = android.os.SystemClock.uptimeMillis();
 
         synchronized (lock) {
             if (result == null || result.length < 8) {
@@ -197,9 +167,6 @@ public class DetectionOverlayView extends View {
         invalidate();
     }
 
-    /**
-     * ScreenDetectService 正在调用的方法，必须保留这个签名。
-     */
     public void clear() {
         synchronized (lock) {
             tracks.clear();
@@ -220,14 +187,10 @@ public class DetectionOverlayView extends View {
             float bestScore = Float.MAX_VALUE;
 
             for (int i = 0; i < tracks.size(); i++) {
-                if (used[i]) {
-                    continue;
-                }
+                if (used[i]) continue;
 
                 Track t = tracks.get(i);
-                if (t.label != d.label) {
-                    continue;
-                }
+                if (t.label != d.label) continue;
 
                 float dx = t.centerX - d.centerX;
                 float dy = t.centerY - d.centerY;
@@ -256,13 +219,11 @@ public class DetectionOverlayView extends View {
                 t.rect.set(d.rect);
                 t.centerX = d.centerX;
                 t.centerY = d.centerY;
-                t.bornTime = now;
                 t.lastSeenTime = now;
                 newOrUpdated.add(t);
             }
         }
 
-        // 保留短暂丢失的目标，减少跳动/闪烁。
         for (Track t : tracks) {
             if (now - t.lastSeenTime <= TRACK_STALE_MS && !newOrUpdated.contains(t)) {
                 newOrUpdated.add(t);
@@ -304,10 +265,6 @@ public class DetectionOverlayView extends View {
         float scaleX = getWidth() / Math.max(1f, srcW);
         float scaleY = getHeight() / Math.max(1f, srcH);
 
-        long now = SystemClock.uptimeMillis();
-        float pulse = 0.90f + 0.10f * (float) Math.sin(now * 0.008f);
-        float scanPhase = (now % 1200L) / 1200f;
-
         for (Track t : snapshot) {
             RectF r = new RectF(
                     t.rect.left * scaleX,
@@ -316,70 +273,40 @@ public class DetectionOverlayView extends View {
                     t.rect.bottom * scaleY
             );
 
-            if (r.width() < dp(10f) || r.height() < dp(10f)) {
+            if (r.width() < dp(8f) || r.height() < dp(8f)) {
                 continue;
             }
 
             LockLevel level = getLockLevel(t.prob);
             applyColor(getColorForLevel(level));
 
-            float acquireProgress = Math.min(1f, (now - t.bornTime) / (float) ACQUIRE_ANIM_MS);
-            acquireProgress = easeOutCubic(acquireProgress);
-            RectF animatedRect = getAcquireAnimatedRect(r, acquireProgress);
-
-            drawLockCorners(canvas, animatedRect, pulse);
-            drawCenterReticle(canvas, animatedRect, pulse);
-            drawScanLine(canvas, animatedRect, scanPhase);
-            drawLabel(canvas, animatedRect, t, level);
+            drawLockCorners(canvas, r);
+            drawCenterReticle(canvas, r);
+            drawLabel(canvas, r, t, level);
         }
-    }
-
-    private float easeOutCubic(float x) {
-        float p = 1f - x;
-        return 1f - p * p * p;
-    }
-
-    private RectF getAcquireAnimatedRect(RectF target, float progress) {
-        // 从 1.45 倍快速收缩到 1.0 倍，模拟导弹捕获目标。
-        float scale = 1.45f - 0.45f * progress;
-        float cx = target.centerX();
-        float cy = target.centerY();
-        float halfW = target.width() * 0.5f * scale;
-        float halfH = target.height() * 0.5f * scale;
-        return new RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH);
     }
 
     private LockLevel getLockLevel(float prob) {
-        if (prob >= LOCKED_THRESHOLD) {
-            return LockLevel.LOCKED;
-        }
-        if (prob >= LOCK_THRESHOLD) {
-            return LockLevel.LOCK;
-        }
+        if (prob >= LOCKED_THRESHOLD) return LockLevel.LOCKED;
+        if (prob >= LOCK_THRESHOLD) return LockLevel.LOCK;
         return LockLevel.TRACK;
     }
 
     private int getColorForLevel(LockLevel level) {
-        if (level == LockLevel.LOCKED) {
-            return COLOR_LOCKED;
-        }
-        if (level == LockLevel.LOCK) {
-            return COLOR_LOCK;
-        }
+        if (level == LockLevel.LOCKED) return COLOR_LOCKED;
+        if (level == LockLevel.LOCK) return COLOR_LOCK;
         return COLOR_TRACK;
     }
 
     private void applyColor(int color) {
         hudPaint.setColor(color);
         thinPaint.setColor(color);
+        centerPaint.setColor(color);
         textPaint.setColor(color);
         textBoxPaint.setColor(color);
-        centerPaint.setColor(color);
-        scanPaint.setColor(Color.argb(180, Color.red(color), Color.green(color), Color.blue(color)));
     }
 
     private void drawHudHeader(Canvas canvas, int count) {
-        hudPaint.setColor(COLOR_TRACK);
         thinPaint.setColor(COLOR_TRACK);
         textPaint.setColor(COLOR_TRACK);
 
@@ -392,61 +319,38 @@ public class DetectionOverlayView extends View {
         canvas.drawText(text, x, y, textPaint);
     }
 
-    private void drawLockCorners(Canvas canvas, RectF r, float pulse) {
-        float corner = Math.max(dp(14f), Math.min(r.width(), r.height()) * 0.22f);
-        float inset = dp(1.5f);
-        RectF rr = new RectF(r.left + inset, r.top + inset, r.right - inset, r.bottom - inset);
-
-        float originalStroke = hudPaint.getStrokeWidth();
-        hudPaint.setStrokeWidth(dp(2.2f) * pulse);
+    private void drawLockCorners(Canvas canvas, RectF r) {
+        float corner = Math.max(dp(10f), Math.min(Math.min(r.width(), r.height()) * 0.22f, dp(26f)));
 
         // 左上
-        canvas.drawLine(rr.left, rr.top, rr.left + corner, rr.top, hudPaint);
-        canvas.drawLine(rr.left, rr.top, rr.left, rr.top + corner, hudPaint);
+        canvas.drawLine(r.left, r.top, r.left + corner, r.top, hudPaint);
+        canvas.drawLine(r.left, r.top, r.left, r.top + corner, hudPaint);
 
         // 右上
-        canvas.drawLine(rr.right - corner, rr.top, rr.right, rr.top, hudPaint);
-        canvas.drawLine(rr.right, rr.top, rr.right, rr.top + corner, hudPaint);
+        canvas.drawLine(r.right - corner, r.top, r.right, r.top, hudPaint);
+        canvas.drawLine(r.right, r.top, r.right, r.top + corner, hudPaint);
 
         // 左下
-        canvas.drawLine(rr.left, rr.bottom - corner, rr.left, rr.bottom, hudPaint);
-        canvas.drawLine(rr.left, rr.bottom, rr.left + corner, rr.bottom, hudPaint);
+        canvas.drawLine(r.left, r.bottom - corner, r.left, r.bottom, hudPaint);
+        canvas.drawLine(r.left, r.bottom, r.left + corner, r.bottom, hudPaint);
 
         // 右下
-        canvas.drawLine(rr.right - corner, rr.bottom, rr.right, rr.bottom, hudPaint);
-        canvas.drawLine(rr.right, rr.bottom - corner, rr.right, rr.bottom, hudPaint);
-
-        // 两侧短线，增强锁定感
-        float midY = rr.centerY();
-        canvas.drawLine(rr.left, midY, rr.left + dp(10f), midY, thinPaint);
-        canvas.drawLine(rr.right - dp(10f), midY, rr.right, midY, thinPaint);
-
-        hudPaint.setStrokeWidth(originalStroke);
+        canvas.drawLine(r.right - corner, r.bottom, r.right, r.bottom, hudPaint);
+        canvas.drawLine(r.right, r.bottom - corner, r.right, r.bottom, hudPaint);
     }
 
-    private void drawCenterReticle(Canvas canvas, RectF r, float pulse) {
+    private void drawCenterReticle(Canvas canvas, RectF r) {
         float cx = r.centerX();
         float cy = r.centerY();
-        float radius = Math.min(r.width(), r.height()) * 0.08f;
-        radius = Math.max(dp(5f), Math.min(dp(12f), radius));
-        float arm = radius + dp(5f);
+        float radius = Math.min(r.width(), r.height()) * 0.07f;
+        radius = Math.max(dp(4f), Math.min(dp(10f), radius));
+        float arm = radius + dp(4f);
 
-        canvas.drawCircle(cx, cy, radius * pulse, centerPaint);
+        canvas.drawCircle(cx, cy, radius, centerPaint);
         canvas.drawLine(cx - arm, cy, cx - radius, cy, centerPaint);
         canvas.drawLine(cx + radius, cy, cx + arm, cy, centerPaint);
         canvas.drawLine(cx, cy - arm, cx, cy - radius, centerPaint);
         canvas.drawLine(cx, cy + radius, cx, cy + arm, centerPaint);
-    }
-
-    private void drawScanLine(Canvas canvas, RectF r, float phase) {
-        float y = r.top + r.height() * phase;
-
-        canvas.save();
-        canvas.clipRect(r);
-        canvas.drawLine(r.left + dp(2f), y, r.right - dp(2f), y, scanPaint);
-        canvas.drawLine(r.left + dp(10f), y - dp(4f), r.right - dp(10f), y - dp(4f), thinPaint);
-        canvas.drawLine(r.left + dp(16f), y + dp(4f), r.right - dp(16f), y + dp(4f), thinPaint);
-        canvas.restore();
     }
 
     private void drawLabel(Canvas canvas, RectF r, Track t, LockLevel level) {
@@ -471,7 +375,6 @@ public class DetectionOverlayView extends View {
         float right = left + textW + padding * 2f;
         float bottom = top + boxH;
 
-        // 避免文字超出右边屏幕
         if (right + dp(8f) > getWidth()) {
             float shift = right + dp(8f) - getWidth();
             left -= shift;
