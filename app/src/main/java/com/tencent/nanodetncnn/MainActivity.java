@@ -1,162 +1,134 @@
-// Tencent is pleased to support the open source community by making ncnn available.
-//
-// Copyright (C) 2021 THL A29 Limited, a Tencent company. All rights reserved.
-//
-// Licensed under the BSD 3-Clause License (the "License"); you may not use this file except
-// in compliance with the License. You may obtain a copy of the License at
-//
-// https://opensource.org/licenses/BSD-3-Clause
-//
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the
-// specific language governing permissions and limitations under the License.
-
 package com.tencent.nanodetncnn;
 
-import android.Manifest;
 import android.app.Activity;
-import android.content.pm.PackageManager;
-import android.graphics.PixelFormat;
+import android.content.Context;
+import android.content.Intent;
+import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
-import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.provider.Settings;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.Spinner;
+import android.widget.Toast;
 
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
-
-public class MainActivity extends Activity implements SurfaceHolder.Callback
-{
-    public static final int REQUEST_CAMERA = 100;
-
-    private NanoDetNcnn nanodetncnn = new NanoDetNcnn();
-    private int facing = 0;
+public class MainActivity extends Activity {
+    private static final int REQUEST_MEDIA_PROJECTION = 2001;
+    private static final int REQUEST_OVERLAY = 2002;
 
     private Spinner spinnerModel;
     private Spinner spinnerCPUGPU;
-    private int current_model = 0;
-    private int current_cpugpu = 0;
+    private int currentModel = 3; // 默认 ELite0_320，比较适合弱性能/32 位设备
+    private int currentCpuGpu = 0; // 默认 CPU
 
-    private SurfaceView cameraView;
-
-    /** Called when the activity is first created. */
     @Override
-    public void onCreate(Bundle savedInstanceState)
-    {
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
-
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        cameraView = (SurfaceView) findViewById(R.id.cameraview);
-
-        cameraView.getHolder().setFormat(PixelFormat.RGBA_8888);
-        cameraView.getHolder().addCallback(this);
-
-        Button buttonSwitchCamera = (Button) findViewById(R.id.buttonSwitchCamera);
-        buttonSwitchCamera.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View arg0) {
-
-                int new_facing = 1 - facing;
-
-                nanodetncnn.closeCamera();
-
-                nanodetncnn.openCamera(new_facing);
-
-                facing = new_facing;
-            }
-        });
-
         spinnerModel = (Spinner) findViewById(R.id.spinnerModel);
+        spinnerCPUGPU = (Spinner) findViewById(R.id.spinnerCPUGPU);
+
+        spinnerModel.setSelection(currentModel);
+        spinnerCPUGPU.setSelection(currentCpuGpu);
+
         spinnerModel.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
-            public void onItemSelected(AdapterView<?> arg0, View arg1, int position, long id)
-            {
-                if (position != current_model)
-                {
-                    current_model = position;
-                    reload();
-                }
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                currentModel = position;
             }
 
             @Override
-            public void onNothingSelected(AdapterView<?> arg0)
-            {
+            public void onNothingSelected(AdapterView<?> parent) {
             }
         });
 
-        spinnerCPUGPU = (Spinner) findViewById(R.id.spinnerCPUGPU);
         spinnerCPUGPU.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
-            public void onItemSelected(AdapterView<?> arg0, View arg1, int position, long id)
-            {
-                if (position != current_cpugpu)
-                {
-                    current_cpugpu = position;
-                    reload();
-                }
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                currentCpuGpu = position;
             }
 
             @Override
-            public void onNothingSelected(AdapterView<?> arg0)
-            {
+            public void onNothingSelected(AdapterView<?> parent) {
             }
         });
 
-        reload();
+        Button start = (Button) findViewById(R.id.buttonStartScreenDetect);
+        start.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startScreenDetectFlow();
+            }
+        });
+
+        Button stop = (Button) findViewById(R.id.buttonStopScreenDetect);
+        stop.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, ScreenDetectService.class);
+                intent.setAction(ScreenDetectService.ACTION_STOP);
+                startService(intent);
+            }
+        });
     }
 
-    private void reload()
-    {
-        boolean ret_init = nanodetncnn.loadModel(getAssets(), current_model, current_cpugpu);
-        if (!ret_init)
-        {
-            Log.e("MainActivity", "nanodetncnn loadModel failed");
-        }
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height)
-    {
-        nanodetncnn.setOutputWindow(holder.getSurface());
-    }
-
-    @Override
-    public void surfaceCreated(SurfaceHolder holder)
-    {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder)
-    {
-    }
-
-    @Override
-    public void onResume()
-    {
-        super.onResume();
-
-        if (ContextCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
-        {
-            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, REQUEST_CAMERA);
+    private void startScreenDetectFlow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "请先允许悬浮窗权限", Toast.LENGTH_LONG).show();
+            Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())
+            );
+            startActivityForResult(intent, REQUEST_OVERLAY);
+            return;
         }
 
-        nanodetncnn.openCamera(facing);
+        requestScreenCapture();
+    }
+
+    private void requestScreenCapture() {
+        MediaProjectionManager manager =
+                (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        if (manager == null) {
+            Toast.makeText(this, "无法获取 MediaProjectionManager", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
     }
 
     @Override
-    public void onPause()
-    {
-        super.onPause();
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
 
-        nanodetncnn.closeCamera();
+        if (requestCode == REQUEST_OVERLAY) {
+            startScreenDetectFlow();
+            return;
+        }
+
+        if (requestCode == REQUEST_MEDIA_PROJECTION) {
+            if (resultCode != RESULT_OK || data == null) {
+                Toast.makeText(this, "录屏授权被取消", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Intent intent = new Intent(this, ScreenDetectService.class);
+            intent.putExtra(ScreenDetectService.EXTRA_RESULT_CODE, resultCode);
+            intent.putExtra(ScreenDetectService.EXTRA_RESULT_DATA, data);
+            intent.putExtra(ScreenDetectService.EXTRA_MODEL_ID, currentModel);
+            intent.putExtra(ScreenDetectService.EXTRA_CPU_GPU, currentCpuGpu);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+
+            Toast.makeText(this, "屏幕识别已启动，可切到其他界面测试", Toast.LENGTH_SHORT).show();
+        }
     }
 }

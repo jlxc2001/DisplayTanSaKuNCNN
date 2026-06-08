@@ -10,9 +10,13 @@ android {
     defaultConfig {
         applicationId "com.tencent.nanodetncnn"
         archivesBaseName = "$applicationId"
-
         minSdkVersion 24
         targetSdkVersion 35
+
+        // 你的设备疑似 32 位处理器，先只打 armeabi-v7a，避免装错 64 位库。
+        ndk {
+            abiFilters "armeabi-v7a"
+        }
 
         externalNativeBuild {
             cmake {
