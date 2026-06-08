@@ -28,25 +28,37 @@ import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
- * 真 UVC 摄像头识别入口。
+ * 真 UVC 摄像头识别入口 - 自动兼容分辨率/格式版本。
  *
- * 工作流：
- * USB UVC Camera -> USBMonitor/libuvc -> UVCCamera preview + NV21 frame callback
- * -> NanoDetNcnn.detectBitmap() -> DetectionOverlayView HUD 框。
- *
- * 这条链路不依赖系统 Camera2 是否识别外接摄像头。
+ * 这版不再固定 640x480，而是依次尝试常见 UVC 输出组合：
+ * MJPEG/YUYV + 640x480 / 320x240 / 800x600 / 1280x720 / 640x360 ...
+ * 解决部分摄像头在固定 640x480 MJPEG/YUYV 下打开失败的问题。
  */
 public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.Callback {
     public static final String EXTRA_MODEL_ID = "model_id";
     public static final String EXTRA_CPU_GPU = "cpu_gpu";
 
-    private static final int PREVIEW_WIDTH = 640;
-    private static final int PREVIEW_HEIGHT = 480;
-    private static final int PREVIEW_MODE_PRIMARY = UVCCamera.FRAME_FORMAT_MJPEG;
-    private static final int PREVIEW_MODE_FALLBACK = UVCCamera.FRAME_FORMAT_YUYV;
-    private static final int FRAME_PIXEL_FORMAT = UVCCamera.PIXEL_FORMAT_NV21;
     private static final long INFER_INTERVAL_MS = 220L;
     private static final int JPEG_QUALITY = 80;
+
+    // 优先尝试低负载尺寸。部分车机/摄像头不支持某些尺寸，所以要自动轮询。
+    private static final int[][] PREVIEW_SIZES = new int[][]{
+            {640, 480},
+            {320, 240},
+            {800, 600},
+            {1280, 720},
+            {960, 720},
+            {640, 360},
+            {352, 288},
+            {1920, 1080}
+    };
+
+    private static final int[] PREVIEW_MODES = new int[]{
+            UVCCamera.FRAME_FORMAT_MJPEG,
+            UVCCamera.FRAME_FORMAT_YUYV
+    };
+
+    private static final int FRAME_PIXEL_FORMAT = UVCCamera.PIXEL_FORMAT_NV21;
 
     private SurfaceView previewView;
     private DetectionOverlayView overlayView;
@@ -62,6 +74,10 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
     private volatile boolean detectBusy = false;
     private long lastInferTime = 0L;
 
+    private int activeWidth = 640;
+    private int activeHeight = 480;
+    private int activeMode = UVCCamera.FRAME_FORMAT_MJPEG;
+
     private NanoDetNcnn nanodet;
     private int modelId = 3;
     private int cpuGpu = 0;
@@ -72,7 +88,7 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    setStatus("检测到UVC/USB设备，正在请求权限");
+                    setStatus("检测到USB设备，正在请求权限：" + device.getProductName());
                     Toast.makeText(UvcCameraDetectActivity.this, "检测到USB设备，正在请求权限", Toast.LENGTH_SHORT).show();
                 }
             });
@@ -98,7 +114,7 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    setStatus("USB权限已允许，正在打开UVC摄像头");
+                    setStatus("USB权限已允许，正在自动匹配UVC格式...");
                 }
             });
             openCamera(ctrlBlock);
@@ -141,20 +157,28 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             lastInferTime = now;
             detectBusy = true;
 
-            final int frameSize = PREVIEW_WIDTH * PREVIEW_HEIGHT * 3 / 2;
+            final int w = activeWidth;
+            final int h = activeHeight;
+            final int frameSize = w * h * 3 / 2;
             final byte[] nv21 = new byte[frameSize];
-            ByteBuffer copy = frame.duplicate();
-            copy.clear();
-            int length = Math.min(copy.remaining(), frameSize);
-            copy.get(nv21, 0, length);
+
+            try {
+                ByteBuffer copy = frame.duplicate();
+                copy.clear();
+                int length = Math.min(copy.remaining(), frameSize);
+                copy.get(nv21, 0, length);
+            } catch (Throwable t) {
+                detectBusy = false;
+                return;
+            }
 
             detectHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        Bitmap bitmap = nv21ToBitmap(nv21, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                        Bitmap bitmap = nv21ToBitmap(nv21, w, h);
                         if (bitmap != null && nanodet != null) {
-                            float[] result = nanodet.detectBitmap(bitmap);
+                            final float[] result = nanodet.detectBitmap(bitmap);
                             if (result != null) {
                                 runOnUiThread(new Runnable() {
                                     @Override
@@ -166,12 +190,7 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
                             bitmap.recycle();
                         }
                     } catch (Throwable t) {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                setStatus("识别帧处理失败");
-                            }
-                        });
+                        // 避免低配车机因为偶发坏帧崩溃。
                     } finally {
                         detectBusy = false;
                     }
@@ -274,6 +293,7 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             return;
         }
 
+        // 多数车机只插一个 UVC 摄像头。这里仍然选第一个，由 USB 权限弹窗显示设备名。
         UsbDevice target = devices.get(0);
         setStatus("请求USB权限：" + target.getDeviceName());
         usbMonitor.requestPermission(target);
@@ -286,10 +306,9 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             uvcCamera = new UVCCamera();
             uvcCamera.open(ctrlBlock);
 
-            try {
-                uvcCamera.setPreviewSize(PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE_PRIMARY);
-            } catch (IllegalArgumentException mjpegError) {
-                uvcCamera.setPreviewSize(PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE_FALLBACK);
+            String lastError = tryConfigurePreview(uvcCamera);
+            if (lastError != null) {
+                throw new IllegalArgumentException(lastError);
             }
 
             if (previewHolder != null) {
@@ -302,7 +321,11 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    setStatus("UVC识别中：" + PREVIEW_WIDTH + "x" + PREVIEW_HEIGHT + " / CPU优先");
+                    String mode = activeMode == UVCCamera.FRAME_FORMAT_MJPEG ? "MJPEG" : "YUYV";
+                    setStatus("UVC识别中：" + activeWidth + "x" + activeHeight + " / " + mode);
+                    Toast.makeText(UvcCameraDetectActivity.this,
+                            "UVC已打开：" + activeWidth + "x" + activeHeight + " " + mode,
+                            Toast.LENGTH_SHORT).show();
                 }
             });
         } catch (final Throwable t) {
@@ -310,11 +333,41 @@ public class UvcCameraDetectActivity extends Activity implements SurfaceHolder.C
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    setStatus("打开UVC失败：" + t.getClass().getSimpleName());
-                    Toast.makeText(UvcCameraDetectActivity.this, "打开UVC失败，可能是不支持该分辨率/格式", Toast.LENGTH_LONG).show();
+                    String msg = t.getMessage();
+                    if (msg == null || msg.length() == 0) {
+                        msg = t.getClass().getSimpleName();
+                    }
+                    setStatus("打开UVC失败：" + msg);
+                    Toast.makeText(UvcCameraDetectActivity.this, "打开UVC失败：已尝试多种分辨率/格式", Toast.LENGTH_LONG).show();
                 }
             });
         }
+    }
+
+    /**
+     * 返回 null 表示成功，非 null 表示所有组合都失败，并携带最后一个错误。
+     */
+    private String tryConfigurePreview(UVCCamera camera) {
+        String lastError = "unknown";
+
+        for (int mode : PREVIEW_MODES) {
+            for (int[] size : PREVIEW_SIZES) {
+                try {
+                    camera.setPreviewSize(size[0], size[1], mode);
+                    activeWidth = size[0];
+                    activeHeight = size[1];
+                    activeMode = mode;
+                    return null;
+                } catch (Throwable t) {
+                    String modeName = mode == UVCCamera.FRAME_FORMAT_MJPEG ? "MJPEG" : "YUYV";
+                    String msg = t.getMessage();
+                    if (msg == null) msg = t.getClass().getSimpleName();
+                    lastError = size[0] + "x" + size[1] + " " + modeName + " -> " + msg;
+                }
+            }
+        }
+
+        return lastError;
     }
 
     private synchronized void closeCamera() {
